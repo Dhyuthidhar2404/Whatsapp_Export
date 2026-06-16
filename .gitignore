@@ -1,0 +1,31 @@
+# Never commit secrets or chat data
+*.crypt12
+*.crypt14
+*.crypt15
+msgstore.db
+wa.db
+key
+*.key
+key.txt
+/output/
+*.zip
+
+# Working / temp files
+/tmp/
+.tmp/
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
