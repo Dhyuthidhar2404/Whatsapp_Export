@@ -121,3 +121,15 @@ Every decision in `docs/architecture.md` has an entry here; the two stay in sync
 **Agreed by:** Owner (PM + Tech Lead)
 **Affects:** Error model; orchestrator teardown; export.py shell
 **Linked issue:** —
+
+---
+
+## Internal interface contract in place of an HTTP API contract
+
+**Date:** 2026-06-16
+**Decision:** Define and agree an internal module-interface contract (the `run_export` facade, the `RunContext` shape, per-stage function signatures, the data hand-off map, the error contract, and the ZIP output shape) instead of an HTTP API contract, mock file, or designer/Figma contract.
+**Reason:** The architecture is a local CLI with no server, no network, no frontend, and no designer, so there is no HTTP surface, no frontend to unblock with a mock, and no screens to design. The genuine pre-implementation contract that lets the six pipeline stages be built in parallel is the interface between modules. Recorded in docs/interface-contract.md.
+**Alternatives considered:** Generating REST endpoints / Bearer auth / a mock.json / a designer-contract (rejected — would invent a network architecture that contradicts the no-network pillar and create exactly the kind of mismatch the contract is meant to prevent).
+**Agreed by:** Owner (PM + Tech Lead)
+**Affects:** All six stage modules; the run_export facade; export.py; SPEC §6
+**Linked issue:** —
