@@ -12,7 +12,13 @@ The key is never logged, printed, written, or placed in
 
 from __future__ import annotations
 
+import getpass
+from pathlib import Path
+
 from wae.errors import InvalidKey
+
+#: Interactive prompt shown when no ``--key-file`` is supplied (input is hidden).
+_PROMPT = "Enter your 64-hex WhatsApp E2E backup key (input hidden): "
 
 #: Zero-width characters that can sneak into a copy-pasted key.
 _ZERO_WIDTH = {"​", "‌", "‍", "﻿"}
@@ -42,3 +48,23 @@ def normalize(raw: str) -> str:
             "(0-9, a-f) — check for typos or missing characters"
         )
     return cleaned
+
+
+def get_key(key_file: Path | None) -> str:
+    """Obtain the normalized key from a file or an interactive no-echo prompt.
+
+    With ``key_file`` set, read its contents; otherwise prompt via
+    :func:`getpass.getpass` (input not echoed). The raw value is passed straight
+    through :func:`normalize` and returned to the caller only — it is never
+    echoed, logged, printed, or written, and is held in a local, never in
+    :class:`~wae.context.RunContext`.
+    """
+    if key_file is not None:
+        try:
+            raw = Path(key_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            # Show the path (not secret); never surface key bytes.
+            raise InvalidKey(f"could not read key file: {key_file}") from exc
+    else:
+        raw = getpass.getpass(_PROMPT)
+    return normalize(raw)
