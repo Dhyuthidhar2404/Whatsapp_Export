@@ -2,6 +2,9 @@
 *.crypt12
 *.crypt14
 *.crypt15
+# Exception: the deliberate, synthetic crypt15 test asset (see issue #13).
+# Its key is a throwaway test value in tests/fixtures/make_crypt15_fixture.py.
+!tests/fixtures/msgstore.db.crypt15
 msgstore.db
 wa.db
 key
