@@ -57,16 +57,25 @@ def detect_format(db_path: Path) -> str:
 
 
 def _build_command(
-    db_path: Path, media_dir: Path | None, key: str, ctx: RunContext, export_dir: Path
+    db_path: Path,
+    media_dir: Path | None,
+    key: str,
+    ctx: RunContext,
+    export_dir: Path,
+    vcf_path: Path | None,
 ) -> list[str]:
-    """Assemble the exporter argv for the chosen format."""
+    """Assemble the exporter argv for the chosen format.
+
+    ``vcf_path`` is the *sanitized* vCard to enrich from (None to skip
+    enrichment); see :func:`_prepare_vcard`.
+    """
     cmd = [*EXPORTER_CMD, "-a", "-k", key, "-b", str(db_path), "-o", str(export_dir)]
     if media_dir is not None:
         cmd += ["-m", str(media_dir)]
-    if ctx.contacts_vcf is not None:
+    if vcf_path is not None:
         # The exporter requires a default country code alongside the vCard.
         country = ctx.default_country_code or DEFAULT_COUNTRY_CODE
-        cmd += ["--enrich-from-vcards", str(ctx.contacts_vcf),
+        cmd += ["--enrich-from-vcards", str(vcf_path),
                 "--default-country-code", country]
     if ctx.fmt == "json":
         cmd += ["-j", str(export_dir / "result.json"), "--no-html"]
@@ -74,6 +83,34 @@ def _build_command(
         cmd += ["--txt", str(export_dir), "--no-html"]
     # html is the exporter's default → no extra flag
     return cmd
+
+
+def _prepare_vcard(ctx: RunContext) -> Path | None:
+    """Sanitize ``--contacts-vcf`` to a clean 3.0 file for the exporter.
+
+    Returns the sanitized path, or None to skip enrichment (no vCard, no usable
+    contacts, or a sanitize failure). One bad vCard entry can never fail the run.
+    """
+    if ctx.contacts_vcf is None:
+        return None
+    from wae import vcard
+
+    try:
+        ctx.tmp_dir.mkdir(parents=True, exist_ok=True)
+        sanitized = ctx.tmp_dir / "contacts.sanitized.vcf"
+        _path, written, skipped = vcard.sanitize_to_vcard3(ctx.contacts_vcf, sanitized)
+    except Exception as exc:
+        log.warning("could not prepare vCard (%s); exporting with numbers only", exc)
+        return None
+    if written == 0:
+        log.warning("vCard had no usable contacts; exporting with numbers only")
+        return None
+    if skipped:
+        log.warning(
+            "vCard: skipped %d unreadable entr(ies); enriching from %d contact(s)",
+            skipped, written,
+        )
+    return sanitized
 
 
 def _redacted(cmd: list[str], key: str) -> str:
@@ -128,7 +165,8 @@ def export_chats(
         shutil.rmtree(export_dir, ignore_errors=True)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = _build_command(db_path, media_dir, key, ctx, export_dir)
+    vcf_path = _prepare_vcard(ctx)
+    cmd = _build_command(db_path, media_dir, key, ctx, export_dir, vcf_path)
     log.info("running exporter: %s", _redacted(cmd, key))
     proc = subprocess.run(cmd, capture_output=True, text=True)
 

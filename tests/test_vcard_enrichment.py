@@ -12,25 +12,54 @@ KEY = "ab" * 32
 # --- command construction (unit) ---
 
 
-def test_no_vcard_means_no_enrich_flag(make_ctx, tmp_path):
+def test_no_vcf_path_means_no_enrich_flag(make_ctx, tmp_path):
     ctx = make_ctx(contacts_vcf=None, tmp_dir=tmp_path / "tmp")
-    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e")
+    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e", None)
     assert "--enrich-from-vcards" not in cmd
 
 
-def test_vcard_adds_enrich_and_country_code(make_ctx, tmp_path):
-    vcf = tmp_path / "c.vcf"
-    ctx = make_ctx(contacts_vcf=vcf, default_country_code="44", tmp_dir=tmp_path / "tmp")
-    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e")
+def test_vcf_path_adds_enrich_and_country_code(make_ctx, tmp_path):
+    sanitized = tmp_path / "clean.vcf"
+    ctx = make_ctx(default_country_code="44", tmp_dir=tmp_path / "tmp")
+    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e", sanitized)
     assert "--enrich-from-vcards" in cmd
-    assert str(vcf) in cmd
+    assert str(sanitized) in cmd
     assert cmd[cmd.index("--default-country-code") + 1] == "44"
 
 
-def test_vcard_without_country_code_uses_fallback(make_ctx, tmp_path):
-    ctx = make_ctx(contacts_vcf=tmp_path / "c.vcf", tmp_dir=tmp_path / "tmp")
-    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e")
+def test_vcf_path_without_country_code_uses_fallback(make_ctx, tmp_path):
+    sanitized = tmp_path / "clean.vcf"
+    ctx = make_ctx(tmp_dir=tmp_path / "tmp")
+    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e", sanitized)
     assert cmd[cmd.index("--default-country-code") + 1] == decrypt_export.DEFAULT_COUNTRY_CODE
+
+
+def test_prepare_vcard_none_when_no_vcf(make_ctx, tmp_path):
+    ctx = make_ctx(contacts_vcf=None, tmp_dir=tmp_path / "tmp")
+    assert decrypt_export._prepare_vcard(ctx) is None
+
+
+def test_prepare_vcard_sanitizes_and_returns_clean_path(make_ctx, tmp_path):
+    vcf = tmp_path / "c.vcf"
+    vcf.write_text(
+        "BEGIN:VCARD\nVERSION:2.1\n"
+        "FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Jos=C3=A9\n"
+        "TEL;CELL:+15551234567\nEND:VCARD\n",
+        encoding="utf-8",
+    )
+    ctx = make_ctx(contacts_vcf=vcf, tmp_dir=tmp_path / "tmp")
+    out = decrypt_export._prepare_vcard(ctx)
+    assert out is not None
+    text = out.read_text(encoding="utf-8")
+    assert "VERSION:3.0" in text and "José" in text
+    assert "QUOTED-PRINTABLE" not in text
+
+
+def test_prepare_vcard_empty_vcf_skips_enrichment(make_ctx, tmp_path):
+    vcf = tmp_path / "c.vcf"
+    vcf.write_text("not a vcard at all\n", encoding="utf-8")
+    ctx = make_ctx(contacts_vcf=vcf, tmp_dir=tmp_path / "tmp")
+    assert decrypt_export._prepare_vcard(ctx) is None  # degrade to numbers-only
 
 
 # --- integration with the real exporter ---

@@ -58,7 +58,7 @@ def test_extract_falls_back_to_chat_filenames(tmp_path):
 
 
 def test_parse_vcard_maps_number_to_name(tmp_path):
-    pytest.importorskip("vobject")
+    # parse_vcard now uses the resilient in-house parser (no vobject needed).
     vcf = tmp_path / "c.vcf"
     vcf.write_text(
         "BEGIN:VCARD\nVERSION:3.0\nFN:Aunt Carol\nTEL;TYPE=CELL:+1 555-123-4567\nEND:VCARD\n"

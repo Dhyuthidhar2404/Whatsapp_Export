@@ -15,27 +15,27 @@ KEY = "ab" * 32
 
 def test_html_default_has_no_format_flag(make_ctx, tmp_path):
     ctx = make_ctx(fmt="html", tmp_dir=tmp_path / "tmp")
-    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e")
+    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e", None)
     assert "-j" not in cmd and "--txt" not in cmd
     assert "--no-html" not in cmd
 
 
 def test_json_flag_passthrough(make_ctx, tmp_path):
     ctx = make_ctx(fmt="json", tmp_dir=tmp_path / "tmp")
-    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e")
+    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e", None)
     assert "-j" in cmd and "--no-html" in cmd
 
 
 def test_txt_flag_passthrough(make_ctx, tmp_path):
     ctx = make_ctx(fmt="txt", tmp_dir=tmp_path / "tmp")
-    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e")
+    cmd = decrypt_export._build_command(Path("/x/db.crypt15"), None, KEY, ctx, tmp_path / "e", None)
     assert "--txt" in cmd and "--no-html" in cmd
 
 
 def test_media_flag_included_when_media_dir_present(make_ctx, tmp_path):
     ctx = make_ctx(fmt="html", tmp_dir=tmp_path / "tmp")
     cmd = decrypt_export._build_command(
-        Path("/x/db.crypt15"), Path("/x/Media"), KEY, ctx, tmp_path / "e"
+        Path("/x/db.crypt15"), Path("/x/Media"), KEY, ctx, tmp_path / "e", None
     )
     assert "-m" in cmd and "/x/Media" in cmd
 
