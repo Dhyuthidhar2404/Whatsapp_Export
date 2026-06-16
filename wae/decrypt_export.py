@@ -172,15 +172,21 @@ def export_chats(
 
     if proc.returncode != 0:
         shutil.rmtree(export_dir, ignore_errors=True)
-        combined = ((proc.stderr or "") + (proc.stdout or "")).lower()
+        stderr = (proc.stderr or "").strip()
+        combined = (stderr + (proc.stdout or "")).lower()
         if any(marker in combined for marker in _BAD_KEY_MARKERS):
             raise DecryptionError(
                 "decryption failed — the key likely doesn't match this backup. "
                 "Re-check the 64-hex key and that this is the backup it belongs to."
             )
+        # Surface the exporter's actual error instead of a canned guess — the
+        # failure may be the backup, the media, or (commonly) the vCard.
+        if stderr:
+            log.warning("exporter stderr:\n%s", stderr)
+        tail = "\n  ".join(stderr.splitlines()[-3:]) if stderr else "(no error output)"
         raise DecryptionError(
-            f"the exporter failed (exit {proc.returncode}); the backup may be "
-            "corrupt or unsupported"
+            f"the exporter failed (exit {proc.returncode}). Last error from the "
+            f"exporter:\n  {tail}"
         )
 
     if ctx.fmt == "html":
