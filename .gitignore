@@ -7,11 +7,13 @@ wa.db
 key
 *.key
 key.txt
+*.vcf
 /output/
 *.zip
 
 # Working / temp files
 /tmp/
+/.tmp/
 .tmp/
 __pycache__/
 *.pyc
