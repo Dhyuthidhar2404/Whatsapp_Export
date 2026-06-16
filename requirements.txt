@@ -1,0 +1,10 @@
+# Runtime dependencies for the WhatsApp Chat Exporter (local).
+#
+# Versions are intentionally LEFT UNPINNED at scaffold time. Exact, verified
+# pins are resolved in issue #13 (T4.0), where a known-good crypt15 fixture
+# confirms that crypt15-with-hex-key decryption works against a current backup.
+# Until then these are the libraries the tool depends on:
+
+whatsapp-chat-exporter   # all decryption + chat parsing (no custom crypto)
+pycryptodome             # crypto primitives used by the exporter
+javaobj-py3              # deserializes the crypt15 key/header objects
