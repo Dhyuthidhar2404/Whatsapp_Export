@@ -11,12 +11,28 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
+from pathlib import Path
 
 from wae.context import RunContext
-from wae.errors import NoBackupError
+from wae.errors import DeviceError, NoBackupError
 from wae.logging_setup import LOGGER_NAME
 
 log = logging.getLogger(LOGGER_NAME)
+
+#: Retry policy for transport-level pull failures (SPEC §5 / DECISIONS).
+PULL_ATTEMPTS = 3
+#: Linear backoff between attempts 1→2 and 2→3.
+BACKOFF_SECONDS = (2, 4)
+#: A backup modified within this many seconds may still be mid-write.
+FRESH_THRESHOLD_SECONDS = 30
+
+#: stderr fragments that indicate a logical (non-retryable) missing-file error.
+_NOTFOUND_MARKERS = ("does not exist", "no such file", "not a directory")
+
+
+class _TransportError(Exception):
+    """Internal: a retryable transport-level pull failure."""
 
 #: adb top-level verbs that mutate the device or its apps — never allowed.
 _WRITE_VERBS = {
@@ -132,3 +148,96 @@ def resolve_paths(ctx: RunContext, serial: str) -> tuple[str, str]:
         )
     media_remote = ctx.media_path or _probe_media(ctx.package, serial, db_remote)
     return db_remote, media_remote
+
+
+def _adb_pull(remote: str, local: Path, serial: str) -> None:
+    """``adb pull`` one remote path to ``local``; classify failures.
+
+    A missing-file error raises :class:`~wae.errors.NoBackupError` (not
+    retried); any other non-zero result raises :class:`_TransportError`
+    (retried by the caller).
+    """
+    proc = adb(["pull", remote, str(local)], serial)
+    if proc.returncode == 0:
+        return
+    err = ((proc.stderr or "") + (proc.stdout or "")).strip()
+    if any(marker in err.lower() for marker in _NOTFOUND_MARKERS):
+        raise NoBackupError(
+            f"the backup file was not found on the device at {remote}; run a "
+            "fresh Back Up in WhatsApp and re-run."
+        )
+    raise _TransportError(err or f"adb pull failed (exit {proc.returncode})")
+
+
+def _remote_stat(remote: str, serial: str, fmt: str) -> int | None:
+    """Read-only ``stat -c <fmt>`` on the device, returning an int or None."""
+    proc = adb(["shell", "stat", "-c", fmt, remote], serial)
+    if proc.returncode != 0:
+        return None
+    try:
+        return int(proc.stdout.strip())
+    except (ValueError, AttributeError):
+        return None
+
+
+def _remote_size(remote: str, serial: str) -> int | None:
+    """Size of the remote file in bytes, or None if unavailable."""
+    return _remote_stat(remote, serial, "%s")
+
+
+def _remote_mtime(remote: str, serial: str) -> int | None:
+    """Last-modified epoch seconds of the remote file, or None if unavailable."""
+    return _remote_stat(remote, serial, "%Y")
+
+
+def _report_freshness(remote: str, serial: str, local: Path) -> None:
+    """Log the backup's age; warn if it looks like it may still be writing."""
+    mtime = _remote_mtime(remote, serial)
+    if mtime is None:
+        log.info("pulled backup to %s (backup age unknown)", local)
+        return
+    age = time.time() - mtime
+    log.info("pulled backup to %s (last backed up ~%.0f min ago)", local, age / 60)
+    if age < FRESH_THRESHOLD_SECONDS:
+        log.warning(
+            "the backup was modified %.0fs ago and may still be writing; if the "
+            "export looks truncated, wait for Back Up to finish and re-run",
+            age,
+        )
+
+
+def pull_backup(ctx: RunContext, serial: str) -> Path:
+    """Pull the encrypted backup into ``ctx.tmp_dir`` and return its local path.
+
+    Retries up to :data:`PULL_ATTEMPTS` times with linear backoff on transport
+    errors only (never on missing-file). Verifies the local size matches the
+    remote size when obtainable, treating a mismatch as a partial pull to retry.
+    Reports the backup's freshness.
+    """
+    db_remote, _ = resolve_paths(ctx, serial)
+    ctx.tmp_dir.mkdir(parents=True, exist_ok=True)
+    local = ctx.tmp_dir / "msgstore.db.crypt15"
+    remote_size = _remote_size(db_remote, serial)
+
+    last_err: Exception | None = None
+    for attempt in range(1, PULL_ATTEMPTS + 1):
+        try:
+            _adb_pull(db_remote, local, serial)
+            if remote_size is not None and local.stat().st_size != remote_size:
+                raise _TransportError(
+                    f"incomplete pull: local {local.stat().st_size} bytes != "
+                    f"remote {remote_size} bytes"
+                )
+            break
+        except _TransportError as exc:
+            last_err = exc
+            log.warning("backup pull attempt %d/%d failed: %s", attempt, PULL_ATTEMPTS, exc)
+            if attempt < PULL_ATTEMPTS:
+                time.sleep(BACKOFF_SECONDS[attempt - 1])
+    else:
+        raise DeviceError(
+            f"failed to pull the backup after {PULL_ATTEMPTS} attempts: {last_err}"
+        )
+
+    _report_freshness(db_remote, serial, local)
+    return local
