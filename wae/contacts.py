@@ -73,19 +73,15 @@ def extract_participants(export_dir: Path) -> set[str]:
 
 
 def parse_vcard(path: Path) -> dict[str, str]:
-    """Parse a vCard file into ``{normalized_number: display_name}``."""
-    import vobject
+    """Parse a vCard file into ``{normalized_number: display_name}``.
 
-    mapping: dict[str, str] = {}
-    text = Path(path).read_text(encoding="utf-8")
-    for card in vobject.readComponents(text):
-        fn = getattr(card, "fn", None)
-        name = fn.value if fn is not None else ""
-        for tel in card.contents.get("tel", []) if hasattr(card, "contents") else []:
-            number = normalize_number(tel.value)
-            if number:
-                mapping[number] = name
-    return mapping
+    Delegates to the resilient :mod:`wae.vcard` parser, which tolerates vCard
+    2.1 quoted-printable, embedded photos, and individual malformed entries —
+    so one bad contact never sinks the CSV.
+    """
+    from wae.vcard import parse_vcards
+
+    return parse_vcards(path)
 
 
 def write_contacts_csv(
