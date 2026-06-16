@@ -10,6 +10,7 @@ probes (``ls``, ``stat``, ``du``).
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -241,3 +242,106 @@ def pull_backup(ctx: RunContext, serial: str) -> Path:
 
     _report_freshness(db_remote, serial, local)
     return local
+
+
+def _human(num: float) -> str:
+    """Human-readable byte size."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if num < 1024:
+            return f"{num:.0f}{unit}"
+        num /= 1024
+    return f"{num:.0f}PB"
+
+
+def _remote_du(remote: str, serial: str) -> int | None:
+    """Estimate the remote media size in bytes via read-only ``du -s -k``."""
+    proc = adb(["shell", "du", "-s", "-k", remote], serial)
+    if proc.returncode != 0:
+        return None
+    tokens = (proc.stdout or "").strip().split()
+    if not tokens:
+        return None
+    try:
+        return int(tokens[0]) * 1024
+    except ValueError:
+        return None
+
+
+def _confirm_continue(prompt: str) -> bool:
+    """Ask the user to proceed; non-interactive / declined → False."""
+    try:
+        answer = input(prompt)
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _parse_skipped(output: str) -> list[str]:
+    """Collect per-file error/skip lines from adb pull output."""
+    skipped = []
+    for line in (output or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if "error:" in low or "skipping" in low or "permission denied" in low:
+            skipped.append(line)
+    return skipped
+
+
+def _adb_pull_media(remote: str, local: Path, serial: str) -> list[str]:
+    """Pull the media tree, returning a list of skipped-file messages.
+
+    A blanket permission denial with nothing pulled means the phone is locked
+    (file-based encryption) → :class:`~wae.errors.DeviceError`. Individual
+    unreadable files are collected and the run continues.
+    """
+    local.mkdir(parents=True, exist_ok=True)
+    proc = adb(["pull", remote, str(local)], serial)
+    output = (proc.stderr or "") + (proc.stdout or "")
+    if proc.returncode != 0 and "permission denied" in output.lower():
+        if not any(local.iterdir()):
+            raise DeviceError(
+                "permission denied pulling media — unlock the phone screen "
+                "(file-based encryption blocks access while locked) and re-run"
+            )
+    return _parse_skipped(output)
+
+
+def pull_media(ctx: RunContext, serial: str) -> Path | None:
+    """Pull the media tree into ``ctx.tmp_dir/Media``, or None if media is off.
+
+    Estimates the remote size and warns + offers abort if it exceeds free disk
+    space; pulls the tree, continuing past individual unreadable files and
+    summarizing what was skipped.
+    """
+    if not ctx.include_media:
+        log.info("skipping media (--no-media)")
+        return None
+
+    _, media_remote = resolve_paths(ctx, serial)
+    ctx.tmp_dir.mkdir(parents=True, exist_ok=True)
+    local_media = ctx.tmp_dir / "Media"
+
+    remote_size = _remote_du(media_remote, serial)
+    if remote_size is not None:
+        free = shutil.disk_usage(ctx.tmp_dir).free
+        log.info("media is ~%s; ~%s free on disk", _human(remote_size), _human(free))
+        if remote_size > free:
+            log.warning(
+                "media (~%s) may not fit in the ~%s of free disk space",
+                _human(remote_size),
+                _human(free),
+            )
+            if not _confirm_continue("Continue pulling media anyway? [y/N] "):
+                raise DeviceError(
+                    "aborted: insufficient disk space for the media pull "
+                    "(re-run with --no-media to skip media)"
+                )
+
+    skipped = _adb_pull_media(media_remote, local_media, serial)
+    if skipped:
+        preview = "\n  ".join(skipped[:10])
+        more = "" if len(skipped) <= 10 else f"\n  …and {len(skipped) - 10} more"
+        log.warning("skipped %d unreadable media file(s):\n  %s%s", len(skipped), preview, more)
+    return local_media
