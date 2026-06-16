@@ -34,6 +34,10 @@ EXPORTER_CMD = [sys.executable, "-m", "Whatsapp_Chat_Exporter"]
 #: stdout/stderr fragments that indicate a key mismatch rather than a tool fault.
 _BAD_KEY_MARKERS = ("not a sqlite database", "correct key", "invalidkey", "inflate")
 
+#: Fallback calling code passed to the exporter when a vCard is supplied but the
+#: user did not set one. Only affects vCard numbers that lack a country code.
+DEFAULT_COUNTRY_CODE = "1"
+
 
 def detect_format(db_path: Path) -> str:
     """Return ``"crypt15"`` for a supported backup; raise on legacy formats."""
@@ -59,6 +63,11 @@ def _build_command(
     cmd = [*EXPORTER_CMD, "-a", "-k", key, "-b", str(db_path), "-o", str(export_dir)]
     if media_dir is not None:
         cmd += ["-m", str(media_dir)]
+    if ctx.contacts_vcf is not None:
+        # The exporter requires a default country code alongside the vCard.
+        country = ctx.default_country_code or DEFAULT_COUNTRY_CODE
+        cmd += ["--enrich-from-vcards", str(ctx.contacts_vcf),
+                "--default-country-code", country]
     if ctx.fmt == "json":
         cmd += ["-j", str(export_dir / "result.json"), "--no-html"]
     elif ctx.fmt == "txt":
