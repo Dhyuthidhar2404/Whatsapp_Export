@@ -39,6 +39,9 @@ class RunContext:
     verbose: bool               # DEBUG logging                     (default False)
     keep_temp: bool             # keep temp workdir                 (default False)
     tmp_dir: Path               # ephemeral working directory
+    # Fallback calling code (e.g. "1", "44") for vCard numbers lacking one.
+    # Required by the exporter only when --contacts-vcf is supplied.
+    default_country_code: str | None = None
 
 
 def build_context(args) -> RunContext:
@@ -60,4 +63,5 @@ def build_context(args) -> RunContext:
         verbose=args.verbose,
         keep_temp=args.keep_temp,
         tmp_dir=Path(getattr(args, "tmp_dir", None) or DEFAULT_TMP_DIR),
+        default_country_code=getattr(args, "default_country_code", None),
     )

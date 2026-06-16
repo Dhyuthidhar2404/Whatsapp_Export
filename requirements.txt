@@ -9,3 +9,4 @@
 whatsapp-chat-exporter==0.12.1
 pycryptodome==3.23.0
 javaobj-py3==0.5.0
+vobject==0.9.9          # vCard parsing for --enrich-from-vcards (issue #16)

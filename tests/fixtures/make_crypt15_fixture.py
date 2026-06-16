@@ -45,8 +45,13 @@ TEST_CONTACT_NAME = "Test Contact"
 EXPECTED_MESSAGE_COUNT = 3
 
 
-def _build_msgstore_db(path: Path) -> None:
-    """Create a minimal but exporter-compatible WhatsApp Android msgstore.db."""
+def _build_msgstore_db(path: Path, with_contacts: bool = True, jid: str = TEST_JID) -> None:
+    """Create a minimal but exporter-compatible WhatsApp Android msgstore.db.
+
+    ``with_contacts=False`` omits the ``wa_contacts`` rows so chats render bare
+    numbers — useful for testing vCard name enrichment in isolation. ``jid``
+    overrides the single chat's participant.
+    """
     if path.exists():
         path.unlink()
     db = sqlite3.connect(path)
@@ -83,7 +88,7 @@ def _build_msgstore_db(path: Path) -> None:
             vcard TEXT);
         """
     )
-    db.execute("INSERT INTO jid (_id, raw_string, type) VALUES (1, ?, 0)", (TEST_JID,))
+    db.execute("INSERT INTO jid (_id, raw_string, type) VALUES (1, ?, 0)", (jid,))
     db.execute("INSERT INTO chat (_id, jid_row_id, subject, hidden) VALUES (1, 1, NULL, 0)")
     rows = [
         (1, 0, 1700000000000, "Hello from the test fixture!"),
@@ -96,12 +101,13 @@ def _build_msgstore_db(path: Path) -> None:
                    status, edit_version, media_wa_type, key_id, needs_push,
                    quoted_row_id, received_timestamp, broadcast)
                VALUES (?,?,?,?,?,0,0,'0',?,0,0,?,0)""",
-            (_id, TEST_JID, from_me, ts, text, f"KEYID{_id}", ts),
+            (_id, jid, from_me, ts, text, f"KEYID{_id}", ts),
         )
-    db.execute(
-        "INSERT INTO wa_contacts (jid, display_name, wa_name, status) VALUES (?,?,?,?)",
-        (TEST_JID, TEST_CONTACT_NAME, "Test WA", "available"),
-    )
+    if with_contacts:
+        db.execute(
+            "INSERT INTO wa_contacts (jid, display_name, wa_name, status) VALUES (?,?,?,?)",
+            (jid, TEST_CONTACT_NAME, "Test WA", "available"),
+        )
     db.commit()
     db.close()
 
@@ -127,13 +133,19 @@ def _encrypt_crypt15(db_bytes: bytes, key_hex: str) -> bytes:
     return bytes(header) + ciphertext + tag
 
 
-def generate(out_path: Path = FIXTURE_PATH) -> Path:
-    """Build the msgstore.db and write the crypt15 fixture to ``out_path``."""
+def generate(
+    out_path: Path = FIXTURE_PATH, *, with_contacts: bool = True, jid: str = TEST_JID
+) -> Path:
+    """Build the msgstore.db and write the crypt15 fixture to ``out_path``.
+
+    Defaults reproduce the committed fixture byte-for-byte. Tests pass
+    ``with_contacts=False`` and/or a custom ``jid`` to build throwaway variants.
+    """
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = Path(tmp) / "msgstore.db"
-        _build_msgstore_db(db_path)
+        _build_msgstore_db(db_path, with_contacts=with_contacts, jid=jid)
         blob = _encrypt_crypt15(db_path.read_bytes(), TEST_KEY_HEX)
     out_path.write_bytes(blob)
     return out_path
