@@ -133,3 +133,15 @@ Every decision in `docs/architecture.md` has an entry here; the two stay in sync
 **Agreed by:** Owner (PM + Tech Lead)
 **Affects:** All six stage modules; the run_export facade; export.py; SPEC §6
 **Linked issue:** —
+
+---
+
+## vCard enrichment requires a default country code (+ `vobject`)
+
+**Date:** 2026-06-16
+**Decision:** When `--contacts-vcf` is supplied, `decrypt_export` passes `--enrich-from-vcards <path>` **and** `--default-country-code <code>` to `whatsapp-chat-exporter`, and `vobject` is pinned as a runtime dependency. A new optional `RunContext.default_country_code` (CLI: `--default-country-code`, exposed in issue #20) carries the value; absent a user value it falls back to `"1"`, which only affects vCard numbers that lack a country code.
+**Reason:** Discovered during implementation of issue #16: the pinned exporter (0.12.1) hard-errors with `--enrich-from-vcards` unless `--default-country-code` is also given, and vCard parsing needs the optional `vobject` package (not pulled in automatically). Fully-international numbers (e.g. `+15551234567`) match regardless of the fallback.
+**Alternatives considered:** Doing the vCard→name join ourselves for chat rendering (rejected — duplicates the exporter and loses its phone-number parsing); hardcoding a country code with no override (rejected — wrong for non-US users, so it is exposed as an optional flag).
+**Agreed by:** Owner (implementer)
+**Affects:** `decrypt_export.export_chats`; `RunContext`; `export.py` flags (#20); `requirements.txt`; SPEC §6
+**Linked issue:** #16
