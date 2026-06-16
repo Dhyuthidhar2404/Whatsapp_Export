@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from wae.errors import EnvError
+from wae.errors import DeviceError, EnvError
 from wae.logging_setup import LOGGER_NAME
 
 log = logging.getLogger(LOGGER_NAME)
@@ -91,3 +91,70 @@ def check_adb_version() -> None:
             ".".join(map(str, version)),
             ".".join(map(str, MIN_ADB_VERSION)),
         )
+
+
+_CONNECT_GUIDANCE = (
+    "connect the phone over USB, enable USB debugging (Settings → System → "
+    "Developer options), and accept the on-phone 'Allow USB debugging?' prompt"
+)
+
+
+def _parse_devices(text: str) -> list[tuple[str, str]]:
+    """Parse ``adb devices`` output into ``[(serial, state), ...]``.
+
+    Skips the header line and adb daemon chatter (lines starting with ``*``).
+    """
+    entries: list[tuple[str, str]] = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("*") or line.lower().startswith("list of devices"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            entries.append((parts[0], parts[1]))
+    return entries
+
+
+def select_device(requested: str | None) -> str:
+    """Resolve exactly one authorized adb serial, or raise :class:`DeviceError`.
+
+    * ``requested`` set → return it if authorized; else explain why not.
+    * exactly one authorized device → return it.
+    * zero → guide the user to connect/authorize.
+    * more than one → require ``--device SERIAL`` and list the serials.
+    """
+    proc = subprocess.run(
+        ["adb", "devices"], capture_output=True, text=True, timeout=10
+    )
+    entries = _parse_devices(proc.stdout)
+    authorized = [serial for serial, state in entries if state == "device"]
+    unauthorized = [serial for serial, state in entries if state == "unauthorized"]
+
+    if requested is not None:
+        if requested in authorized:
+            return requested
+        if requested in unauthorized:
+            raise DeviceError(
+                f"device {requested} is connected but unauthorized — unlock the "
+                "phone and accept the 'Allow USB debugging?' prompt, then re-run"
+            )
+        raise DeviceError(
+            f"requested device {requested} was not found among connected, "
+            "authorized devices"
+        )
+
+    if len(authorized) == 1:
+        return authorized[0]
+
+    if not authorized:
+        if unauthorized:
+            raise DeviceError(
+                "a device is connected but unauthorized — unlock the phone and "
+                "accept the 'Allow USB debugging?' prompt, then re-run"
+            )
+        raise DeviceError(f"no authorized device found; {_CONNECT_GUIDANCE}")
+
+    raise DeviceError(
+        "multiple devices are attached; select one with --device SERIAL. "
+        "Connected: " + ", ".join(authorized)
+    )
